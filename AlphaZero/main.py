@@ -49,7 +49,7 @@ AlphaZero: 自己対戦強化学習 with 動的盤面サイズ対応
 
   --load_checkpoint PATH
     復元するチェックポイントパス (default: None)
-    例: checkpoints/network
+    例: checkpoints/run_YYYYMMDD_HHMMSS/network_step_600/network.weights.h5
     指定時は停止したモデルから追加学習を再開
 
   --resume_logging
@@ -85,16 +85,16 @@ $ python main.py --board_size 6 --episodes 10000 --buffer_size 40000 \\
    (学習進行中に Ctrl+C で中断)
    ↓
    学習開始: buffer_size // 2 = 5000 サンプル
-   checkpoints/run_YYYYMMDD_HHMMSS/network_step_*/ 以降に自動保存される
+   checkpoints/run_YYYYMMDD_HHMMSS/network_step_*/network.weights.h5 以降に自動保存される
 
 2. 途中から再開（新規ログで再開）:
    $ python main.py --board_size 4 --episodes 50000 --buffer_size 10000 --num_cpus 8 \\
-       --load_checkpoint checkpoints/run_YYYYMMDD_HHMMSS/network_step_*/network
+       --load_checkpoint checkpoints/run_YYYYMMDD_HHMMSS/network_step_*/network.weights.h5
    ※ ログはリセットされ、TensorBoard上では新規グラフから開始
 
 3. 既存ログを保持しながら再開（推奨）:
    $ python main.py --board_size 4 --episodes 50000 --buffer_size 10000 --num_cpus 8 \\
-       --load_checkpoint checkpoints/run_YYYYMMDD_HHMMSS/network_step_*/network --resume_logging
+       --load_checkpoint checkpoints/run_YYYYMMDD_HHMMSS/network_step_*/network.weights.h5 --resume_logging
    ※ TensorBoard上で前回のグラフに追加プロットされる
 
 =============================================================================
@@ -126,9 +126,7 @@ AlphaZero/
 ├── checkpoints/         ← モデルの歴代保存先（実行ごとのrunディレクトリ配下）
 │   └── run_YYYYMMDD_HHMMSS/
 │       ├── network_step_600/
-│       │   ├── network.index
-│       │   ├── network.data-00000-of-00001
-│       │   └── checkpoint
+│       │   └── network.weights.h5
 │       └── ...
 ├── log/                 ← TensorBoardログ
 │   └── events.out.tfevents.xxx
@@ -162,6 +160,22 @@ class Sample:
     mcts_policy: list
     player: int
     reward: int
+
+
+def resolve_weights_path(path):
+    checkpoint_path = Path(path)
+    candidates = [checkpoint_path]
+
+    if checkpoint_path.is_dir():
+        candidates.insert(0, checkpoint_path / "network.weights.h5")
+    elif checkpoint_path.suffix != ".h5":
+        candidates.insert(0, checkpoint_path.with_name(checkpoint_path.name + ".weights.h5"))
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    return candidates[0]
 
 
 @ray.remote(num_cpus=1, num_gpus=0)
@@ -340,7 +354,7 @@ def main(num_cpus, n_episodes=10000, buffer_size=40000,
     
     # チェックポイントから復元
     if load_checkpoint:
-        checkpoint_path = Path(load_checkpoint)
+        checkpoint_path = resolve_weights_path(load_checkpoint)
         if checkpoint_path.exists():
             try:
                 network.load_weights(str(checkpoint_path))
@@ -426,7 +440,7 @@ def main(num_cpus, n_episodes=10000, buffer_size=40000,
         if n % save_period == 0 and len(replay) >= learn_threshold:
             checkpoint_dir = checkpoint_root / f"network_step_{n}"
             checkpoint_dir.mkdir(parents=True, exist_ok=True)
-            network.save_weights(str(checkpoint_dir / "network"))
+            network.save_weights(str(checkpoint_dir / "network.weights.h5"))
             print(f"✓ チェックポイント保存: step_{n}")
 
             print(f"{n}: TEST")
